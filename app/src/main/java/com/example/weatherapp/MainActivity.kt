@@ -2,6 +2,7 @@ package com.example.weatherapp
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.app.Dialog
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
@@ -22,10 +23,17 @@ import com.karumi.dexter.PermissionToken
 import com.karumi.dexter.listener.PermissionRequest
 import com.karumi.dexter.listener.multi.MultiplePermissionsListener
 import com.example.weatherapp.utils.Constants
+import com.example.weatherapp.models.WeatherResponse
+import com.example.weatherapp.network.WeatherService
+import kotlinx.android.synthetic.main.activity_main.*
+import retrofit.*
 
 class MainActivity : AppCompatActivity() {
 
-    private lateinit var mFusedLocationClient : FusedLocationProviderClient
+    private lateinit var mFusedLocationClient: FusedLocationProviderClient
+
+
+    private var mProgressDialog: Dialog? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -36,10 +44,10 @@ class MainActivity : AppCompatActivity() {
         if (!isLocationEnabled()) {
             Toast.makeText(
                 this,
-                "Your location is turned off, please turn it on",
+                "Your location provider is turned off. Please turn it on.",
                 Toast.LENGTH_SHORT
-            )
-                .show()
+            ).show()
+
 
             val intent = Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)
             startActivity(intent)
@@ -63,6 +71,7 @@ class MainActivity : AppCompatActivity() {
                             ).show()
                         }
                     }
+
                     override fun onPermissionRationaleShouldBeShown(
                         permissions: MutableList<PermissionRequest>?,
                         token: PermissionToken?
@@ -74,47 +83,15 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun getLocationWeatherDetails(){
-        if (Constants.isNetworkAvailable(this@MainActivity)) {
 
-            Toast.makeText(
-                this@MainActivity,
-                "You have connected to the internet. Now you can make an api call.",
-                Toast.LENGTH_SHORT
-            ).show()
-        } else {
-            Toast.makeText(
-                this@MainActivity,
-                "No internet connection available.",
-                Toast.LENGTH_SHORT
-            ).show()
-        }
-
-    }
-
-
-    @SuppressLint("MissingPermission")
-    private fun requestLocationData() {
-        val mLocationRequest = LocationRequest()
-        mLocationRequest.priority = LocationRequest.PRIORITY_HIGH_ACCURACY
-
-        mFusedLocationClient.requestLocationUpdates(
-            mLocationRequest, mLocationCallback,
-            Looper.myLooper()
+    private fun isLocationEnabled(): Boolean {
+        val locationManager: LocationManager =
+            getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        return locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) || locationManager.isProviderEnabled(
+            LocationManager.NETWORK_PROVIDER
         )
     }
 
-    private val mLocationCallback = object : LocationCallback() {
-        override fun onLocationResult(locationResult: LocationResult) {
-            val mLastLocation: Location = locationResult.lastLocation
-            val latitude = mLastLocation.latitude
-            Log.i("Current Latitude", "$latitude")
-
-            val longitude = mLastLocation.longitude
-            Log.i("Current Longitude", "$longitude")
-            getLocationWeatherDetails()
-        }
-    }
 
     private fun showRationalDialogForPermissions() {
         AlertDialog.Builder(this)
@@ -131,16 +108,124 @@ class MainActivity : AppCompatActivity() {
                     e.printStackTrace()
                 }
             }
-            .setNegativeButton("Cancel") { dialog, _ ->
+            .setNegativeButton("Cancel") { dialog,
+                                           _ ->
                 dialog.dismiss()
             }.show()
     }
 
-    private fun isLocationEnabled(): Boolean {
-        val locationManager: LocationManager =
-            getSystemService(Context.LOCATION_SERVICE) as LocationManager
-        return locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
-                || locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+
+    @SuppressLint("MissingPermission")
+    private fun requestLocationData() {
+        val mLocationRequest = LocationRequest()
+        mLocationRequest.priority = LocationRequest.PRIORITY_HIGH_ACCURACY
+
+        mFusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
+        mFusedLocationClient.requestLocationUpdates(
+            mLocationRequest, mLocationCallback,
+            Looper.myLooper()
+        )
+    }
+
+    private val mLocationCallback = object : LocationCallback() {
+        override fun onLocationResult(locationResult: LocationResult) {
+            val mLastLocation: Location = locationResult.lastLocation
+            val latitude = mLastLocation.latitude
+            Log.i("Current Latitude", "$latitude")
+
+            val longitude = mLastLocation.longitude
+            Log.i("Current Longitude", "$longitude")
+
+            getLocationWeatherDetails(latitude, longitude)
+        }
+    }
+
+    private fun getLocationWeatherDetails(latitude: Double, longitude: Double) {
+
+        if (Constants.isNetworkAvailable(this@MainActivity)) {
+            val retrofit: Retrofit = Retrofit.Builder()
+                .baseUrl(Constants.BASE_URL)
+                .addConverterFactory(GsonConverterFactory.create())
+                .build()
+
+            val service: WeatherService =
+                retrofit.create<WeatherService>(WeatherService::class.java)
+
+            val listCall: Call<WeatherResponse> = service.getWeather(
+                latitude, longitude, Constants.METRIC_UNIT, Constants.APP_ID
+            )
+            showCustomProgressDialog()
+
+            listCall.enqueue(object : Callback<WeatherResponse> {
+                @SuppressLint("SetTextI18n")
+                override fun onResponse(
+                    response: Response<WeatherResponse>,
+                    retrofit: Retrofit
+                ) {
+                    if (response.isSuccess) {
+                        hideProgressDialog()
+                        val weatherList: WeatherResponse = response.body()
+                        setupUI(weatherList)
+                        Log.i("Response Result", "$weatherList")
+                    } else {
+                        val sc = response.code()
+                        when (sc) {
+                            400 -> {
+                                Log.e("Error 400", "Bad Request")
+                            }
+                            404 -> {
+                                Log.e("Error 404", "Not Found")
+                            }
+                            else -> {
+                                Log.e("Error", "Generic Error")
+                            }
+                        }
+                    }
+                }
+
+                override fun onFailure(t: Throwable) {
+                    hideProgressDialog()
+                    Log.e("Error", t.message.toString())
+                }
+            })
+        } else {
+            Toast.makeText(
+                this@MainActivity,
+                "No internet connection available.",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
+
+    private fun showCustomProgressDialog() {
+        mProgressDialog = Dialog(this)
+        mProgressDialog!!.setContentView(R.layout.dialog_custom_progress)
+        mProgressDialog!!.show()
+    }
+
+
+    private fun hideProgressDialog() {
+        if (mProgressDialog != null) {
+            mProgressDialog!!.dismiss()
+        }
+    }
+
+    private fun setupUI(weatherList: WeatherResponse) {
+        for (i in weatherList.weather.indices) {
+            Log.i("Weather Name", weatherList.weather[i].main)
+
+            tv_main.text = weatherList.weather[i].main
+            tv_main_description.text = weatherList.weather[i].description
+            tv_temp.text = weatherList.main.temp.toString() + getUnit(application.resources.configuration.locales.toString())
+        }
+    }
+
+    private fun getUnit(value: String): String?{
+        var value = "°C"
+        if("US" == value || "LR" == value || "MM" == value){
+            value = "°F"
+        }
+        return value
     }
 
 }

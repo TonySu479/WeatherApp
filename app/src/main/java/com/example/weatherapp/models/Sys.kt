@@ -2,7 +2,7 @@ package com.example.weatherapp.models
 
 import java.io.Serializable
 
-data class Sys (
+data class Sys(
     val type: Int,
     val message: Double,
     val country: String,
