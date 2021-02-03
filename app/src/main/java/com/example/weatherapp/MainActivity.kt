@@ -212,10 +212,8 @@ class MainActivity : AppCompatActivity() {
                         val weatherList: WeatherResponse = response.body()
                         Log.i("Response Result", "$weatherList")
 
-                        // TODO (STEP 6: Call the setup UI method here and pass the response object as a parameter to it to get the individual values.)
-                        // START
                         setupUI(weatherList)
-                        // END
+
                     } else {
                         // If the response is not success then we check the response code.
                         val sc = response.code()
@@ -270,10 +268,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // TODO (STEP 5: We have set the values to the UI and also added some required methods for Unit and Time below.)
-    /**
-     * Function is used to set the result in the UI elements.
-     */
+
     private fun setupUI(weatherList: WeatherResponse) {
 
         // For loop to get the required data. And all are populated in the UI.
@@ -335,5 +330,5 @@ class MainActivity : AppCompatActivity() {
         sdf.timeZone = TimeZone.getDefault()
         return sdf.format(date)
     }
-    // END
+
 }
